@@ -6,13 +6,22 @@
   <style>
     body { margin: 0; overflow: hidden; background: #111; color: #fff; font-family: sans-serif; }
     #hud { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 40px; }
+    .status { display: flex; flex-direction: column; align-items: center; }
+    .energy { width: 120px; height: 10px; background: #444; margin-top: 4px; }
+    .energy div { height: 100%; background: #ff0; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
   <div id="hud">
-    <div id="p1">Player 1 HP: 100</div>
-    <div id="p2">Player 2 HP: 100</div>
+    <div class="status">
+      <div id="p1">Player 1 HP: 100</div>
+      <div id="p1energy" class="energy"><div></div></div>
+    </div>
+    <div class="status">
+      <div id="p2">Player 2 HP: 100</div>
+      <div id="p2energy" class="energy"><div></div></div>
+    </div>
   </div>
   <script>
     const canvas = document.getElementById('game');
@@ -30,20 +39,37 @@
         this.radius = 20;
         this.hp = 100;
         this.shield = 0; // shield time remaining in frames
+        this.dir = { x: color === '#0f0' ? 1 : -1, y: 0 }; // facing direction
+        this.energy = 100;
+        this.maxEnergy = 100;
+      }
+      updateDirection(key) {
+        if (key === this.controls.up) this.dir = { x: 0, y: -1 };
+        if (key === this.controls.down) this.dir = { x: 0, y: 1 };
+        if (key === this.controls.left) this.dir = { x: -1, y: 0 };
+        if (key === this.controls.right) this.dir = { x: 1, y: 0 };
       }
       move(keys) {
-        if (keys[this.controls.up]) this.y -= this.speed;
-        if (keys[this.controls.down]) this.y += this.speed;
-        if (keys[this.controls.left]) this.x -= this.speed;
-        if (keys[this.controls.right]) this.x += this.speed;
+        if (keys[this.controls.up]) { this.y -= this.speed; }
+        if (keys[this.controls.down]) { this.y += this.speed; }
+        if (keys[this.controls.left]) { this.x -= this.speed; }
+        if (keys[this.controls.right]) { this.x += this.speed; }
         this.x = Math.max(this.radius, Math.min(canvas.width - this.radius, this.x));
         this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
+        if (this.energy < this.maxEnergy) this.energy = Math.min(this.maxEnergy, this.energy + 0.05);
       }
       draw() {
         ctx.beginPath();
         ctx.fillStyle = this.color;
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fill();
+        // orientation indicator
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x + this.dir.x * this.radius, this.y + this.dir.y * this.radius);
+        ctx.stroke();
         if (this.shield > 0) {
           ctx.strokeStyle = '#0ff';
           ctx.lineWidth = 3;
@@ -77,7 +103,11 @@
     }
 
     const keys = {};
-    window.addEventListener('keydown', e => { keys[e.key] = true; });
+    window.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      p1.updateDirection(e.key);
+      p2.updateDirection(e.key);
+    });
     window.addEventListener('keyup', e => { keys[e.key] = false; });
 
     const p1 = new Player(100, canvas.height / 2, '#0f0', {
@@ -90,11 +120,19 @@
     const projectiles = [];
 
     function castSpell(player) {
+      const cost = 20;
+      if (player.energy < cost) return;
+      player.energy -= cost;
       const speed = 6;
-      let vx = 0, vy = 0;
-      if (player === p1) vx = speed;
-      else vx = -speed;
-      projectiles.push(new Projectile(player.x, player.y, vx, vy, player));
+      const vx = player.dir.x * speed;
+      const vy = player.dir.y * speed;
+      projectiles.push(new Projectile(
+        player.x + player.dir.x * player.radius,
+        player.y + player.dir.y * player.radius,
+        vx,
+        vy,
+        player
+      ));
     }
 
     function update() {
@@ -112,11 +150,17 @@
 
       if (keys[p1.controls.shield]) {
         keys[p1.controls.shield] = false;
-        p1.shield = 120; // frames of shield
+        if (p1.energy >= 30) {
+          p1.energy -= 30;
+          p1.shield = 120; // frames of shield
+        }
       }
       if (keys[p2.controls.shield]) {
         keys[p2.controls.shield] = false;
-        p2.shield = 120;
+        if (p2.energy >= 30) {
+          p2.energy -= 30;
+          p2.shield = 120;
+        }
       }
 
       projectiles.forEach((proj, i) => {
@@ -147,6 +191,8 @@
       projectiles.forEach(p => p.draw());
       document.getElementById('p1').textContent = `Player 1 HP: ${p1.hp}`;
       document.getElementById('p2').textContent = `Player 2 HP: ${p2.hp}`;
+      document.querySelector('#p1energy div').style.width = `${(p1.energy / p1.maxEnergy) * 100}%`;
+      document.querySelector('#p2energy div').style.width = `${(p2.energy / p2.maxEnergy) * 100}%`;
     }
 
     function loop() {
