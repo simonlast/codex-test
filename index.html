@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Wizard Battle</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #111; color: #fff; font-family: sans-serif; }
+    #hud { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 40px; }
+    .playerhud { text-align: center; }
+    progress { width: 200px; height: 20px; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div class="playerhud">
+      <div id="p1-hp">Player 1 HP: 100</div>
+      <progress id="p1-energy" value="100" max="100"></progress>
+    </div>
+    <div class="playerhud">
+      <div id="p2-hp">Player 2 HP: 100</div>
+      <progress id="p2-energy" value="100" max="100"></progress>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    class Player {
+      constructor(x, y, color, controls, facing) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.controls = controls;
+        this.speed = 3;
+        this.radius = 20;
+        this.hp = 100;
+        this.shield = 0; // shield time remaining in frames
+        this.facing = facing; // 1 right, -1 left
+        this.maxEnergy = 100;
+        this.energy = this.maxEnergy;
+      }
+      move(keys) {
+        if (keys[this.controls.up]) this.y -= this.speed;
+        if (keys[this.controls.down]) this.y += this.speed;
+        if (keys[this.controls.left]) { this.x -= this.speed; this.facing = -1; }
+        if (keys[this.controls.right]) { this.x += this.speed; this.facing = 1; }
+        this.x = Math.max(this.radius, Math.min(canvas.width - this.radius, this.x));
+        this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
+      }
+      draw() {
+        ctx.beginPath();
+        ctx.fillStyle = this.color;
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        // facing indicator
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(this.x + this.facing * this.radius, this.y);
+        ctx.lineTo(this.x + this.facing * (this.radius + 8), this.y - 5);
+        ctx.lineTo(this.x + this.facing * (this.radius + 8), this.y + 5);
+        ctx.fill();
+        if (this.shield > 0) {
+          ctx.strokeStyle = '#0ff';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius + 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    }
+
+    class Projectile {
+      constructor(x, y, vx, vy, owner) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.owner = owner;
+        this.radius = 5;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        return this.x > 0 && this.x < canvas.width && this.y > 0 && this.y < canvas.height;
+      }
+      draw() {
+        ctx.beginPath();
+        ctx.fillStyle = '#f00';
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.key] = true; });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    const p1 = new Player(100, canvas.height / 2, '#0f0', {
+      up: 'w', down: 's', left: 'a', right: 'd', fire: 'f', shield: 'g'
+    }, 1);
+    const p2 = new Player(canvas.width - 100, canvas.height / 2, '#00f', {
+      up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', fire: 'l', shield: 'k'
+    }, -1);
+
+    const projectiles = [];
+
+    function castSpell(player) {
+      const speed = 6;
+      let vx = 0, vy = 0;
+      if (player === p1) vx = speed;
+      else vx = -speed;
+      projectiles.push(new Projectile(player.x, player.y, vx, vy, player));
+    }
+
+    function update() {
+      p1.move(keys);
+      p2.move(keys);
+      // regenerate energy
+      p1.energy = Math.min(p1.maxEnergy, p1.energy + 0.2);
+      p2.energy = Math.min(p2.maxEnergy, p2.energy + 0.2);
+
+      if (keys[p1.controls.fire] && p1.energy >= 20) {
+        keys[p1.controls.fire] = false;
+        castSpell(p1);
+        p1.energy -= 20;
+      }
+      if (keys[p2.controls.fire] && p2.energy >= 20) {
+        keys[p2.controls.fire] = false;
+        castSpell(p2);
+        p2.energy -= 20;
+      }
+
+      if (keys[p1.controls.shield] && p1.energy >= 30) {
+        keys[p1.controls.shield] = false;
+        p1.shield = 120; // frames of shield
+        p1.energy -= 30;
+      }
+      if (keys[p2.controls.shield] && p2.energy >= 30) {
+        keys[p2.controls.shield] = false;
+        p2.shield = 120;
+        p2.energy -= 30;
+      }
+
+      projectiles.forEach((proj, i) => {
+        if (!proj.update()) projectiles.splice(i, 1);
+        else {
+          const targets = proj.owner === p1 ? [p2] : [p1];
+          targets.forEach(target => {
+            const dx = proj.x - target.x;
+            const dy = proj.y - target.y;
+            if (Math.hypot(dx, dy) < proj.radius + target.radius) {
+              projectiles.splice(i, 1);
+              if (target.shield === 0) {
+                target.hp = Math.max(0, target.hp - 10);
+              }
+            }
+          });
+        }
+      });
+
+      if (p1.shield > 0) p1.shield--;
+      if (p2.shield > 0) p2.shield--;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      p1.draw();
+      p2.draw();
+      projectiles.forEach(p => p.draw());
+      document.getElementById('p1-hp').textContent = `Player 1 HP: ${p1.hp}`;
+      document.getElementById('p2-hp').textContent = `Player 2 HP: ${p2.hp}`;
+      document.getElementById('p1-energy').value = p1.energy;
+      document.getElementById('p2-energy').value = p2.energy;
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>
